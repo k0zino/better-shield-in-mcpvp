@@ -1,0 +1,17 @@
+{
+	"required": true,
+	"package": "com.shieldtweak.client.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"ClientPacketListenerMixin",
+		"ItemInHandLayerMixin",
+		"ItemInHandRendererMixin",
+		"ShieldSpecialRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}

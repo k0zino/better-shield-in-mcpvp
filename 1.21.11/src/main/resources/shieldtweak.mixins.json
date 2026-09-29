@@ -1,0 +1,16 @@
+{
+	"required": true,
+	"package": "com.shieldtweak.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"mixins": [
+	],
+	"client": [
+		"ClientPlayNetworkHandlerMixin",
+		"HeldItemFeatureRendererMixin",
+		"HeldItemRendererMixin",
+		"ShieldModelRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

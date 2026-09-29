@@ -1,0 +1,35 @@
+{
+	"schemaVersion": 1,
+	"id": "shieldtweak",
+	"version": "${version}",
+	"name": "Shield Tweak",
+	"description": "低盾：下调第一人称盾牌模型避免遮挡视野；按状态（未举起/举起/禁用）为盾牌染色，对所有玩家生效；自己的盾牌从禁用恢复时播放提示音。",
+	"authors": [
+		"shieldtweak"
+	],
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.shieldtweak.client.ShieldTweakClient"
+		],
+		"modmenu": [
+			"com.shieldtweak.client.ShieldTweakModMenu"
+		]
+	},
+	"mixins": [
+		{
+			"config": "shieldtweak.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
+	}
+}
