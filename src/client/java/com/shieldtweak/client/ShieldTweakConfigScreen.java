@@ -15,15 +15,11 @@ import net.minecraft.network.chat.Component;
 /**
  * 游戏内设置界面。
  *
- * 每次点击都会立刻写入 {@link ShieldTweakConfig} 并存盘，因此改动即时生效，
- * 无需"保存"按钮，也不必重启游戏。
+ * 开关和音效预设点击即保存；颜色与数值进入编辑页，应用后保存。
  *
- * 26.2 把 GUI 绘制重构成了 extractRenderState 模型，文本绘制不再挂在
- * GuiGraphicsExtractor 上，所以本界面只用 Button 构建，不自绘任何文本，
- * 以免依赖易变的绘制 API。标题同样用一个禁用按钮承载。
+ * 设置列表使用原版按钮分页，独立编辑页使用原版文本框和滑块。
  *
- * 数值/颜色类选项在预设档位之间循环；需要精确值仍可直接编辑
- * config/shieldtweak.json。若当前值不在预设里，第一次点击会先吸附到最接近的档位。
+ * 编辑页支持颜色预览、RGB 滑块与精确数值输入。
  */
 public class ShieldTweakConfigScreen extends Screen {
     private static final int ROW_HEIGHT = 20;
@@ -32,28 +28,6 @@ public class ShieldTweakConfigScreen extends Screen {
     /** 标题距顶距离与底部按钮距下边缘距离 */
     private static final int TOP_MARGIN = 12;
     private static final int BOTTOM_MARGIN = 10;
-
-    /** 颜色预设，按点击顺序循环 */
-    private static final double[] COLOR_PRESETS = {
-            0xFFFFFF, 0x55FF55, 0xFF5555, 0xFFFF55, 0x55FFFF,
-            0x5555FF, 0xFF55FF, 0xFFAA00, 0xAAAAAA, 0x000000
-    };
-    private static final String[] COLOR_NAMES = {
-            "白（不染色）", "绿", "红", "黄", "青", "蓝", "品红", "橙", "灰", "黑"
-    };
-
-    private static final double[] OFFSET_PRESETS = {
-            0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.75, 1.0
-    };
-    private static final double[] VOLUME_PRESETS = {
-            0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0
-    };
-    private static final double[] PITCH_PRESETS = {
-            0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0
-    };
-    private static final double[] DELAY_PRESETS = {0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20};
-    private static final double[] DISABLE_TICKS_PRESETS = {0, 20, 40, 60, 80, 100, 120, 140, 200};
-    private static final double[] RADIUS_PRESETS = {1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 16};
 
     /** 已在 26.2 的 SoundEvents 中核实存在的音效 */
     private static final String[] SOUND_PRESETS = {
@@ -109,12 +83,8 @@ public class ShieldTweakConfigScreen extends Screen {
         final int start = page * rowsPerPage;
         for (int i = 0; i < rowsPerPage && start + i < options.size(); i++) {
             final Option option = options.get(start + i);
-            addRenderableWidget(Button.builder(Component.literal(label(option)), b -> {
-                option.cycle();
-                ShieldTweakConfig.get().save();
-                // 只改按钮文字，不重建控件：避免在事件派发中改动 children
-                b.setMessage(Component.literal(label(option)));
-            }).bounds(x, y, BUTTON_WIDTH, ROW_HEIGHT).build());
+            addRenderableWidget(Button.builder(Component.literal(label(option)), b -> select(option, b))
+                    .bounds(x, y, BUTTON_WIDTH, ROW_HEIGHT).build());
             y += ROW_HEIGHT + ROW_GAP;
         }
 
@@ -141,7 +111,25 @@ public class ShieldTweakConfigScreen extends Screen {
     }
 
     private static String label(final Option option) {
-        return option.name() + "：" + option.displayValue();
+        return option.name() + "：" + option.displayValue()
+                + (option instanceof NumOption || option instanceof ColorOption ? "（编辑）" : "");
+    }
+
+    private void select(Option option, Button button) {
+        if (option instanceof NumOption number) {
+            minecraft.setScreenAndShow(ShieldTweakValueScreen.number(this, number.name(), number.get().getAsDouble(),
+                    number.suffix(), number.rule(), number.set()));
+            return;
+        }
+        if (option instanceof ColorOption color) {
+            minecraft.setScreenAndShow(ShieldTweakValueScreen.color(this, color.name(), color.get().getAsInt(),
+                    color.defaultValue(), color.set()));
+            return;
+        }
+        if (option instanceof BoolOption bool) bool.set().accept(!bool.get().getAsBoolean());
+        if (option instanceof StrOption string) string.cycle();
+        ShieldTweakConfig.get().save();
+        button.setMessage(Component.literal(label(option)));
     }
 
     @Override
@@ -152,11 +140,12 @@ public class ShieldTweakConfigScreen extends Screen {
     /** 每次 init 都重新构建，lambda 因此总是引用当前的配置实例 */
     private static List<Option> buildOptions() {
         ShieldTweakConfig cfg = ShieldTweakConfig.get();
+        ShieldTweakConfig defaults = new ShieldTweakConfig();
         List<Option> list = new ArrayList<>();
 
         list.add(new BoolOption("低盾（下移第一人称盾牌）",
                 () -> cfg.lowShieldEnabled, v -> cfg.lowShieldEnabled = v));
-        list.add(new NumOption("低盾下移量", "", OFFSET_PRESETS,
+        list.add(new NumOption("低盾下移量", " 格", decimal(0.05, defaults.lowShieldOffset),
                 () -> cfg.lowShieldOffset, v -> cfg.lowShieldOffset = v));
 
         list.add(new BoolOption("盾牌染色",
@@ -167,35 +156,35 @@ public class ShieldTweakConfigScreen extends Screen {
                 () -> cfg.tintOthers, v -> cfg.tintOthers = v));
         list.add(new BoolOption("推断其他玩家破盾（染红）",
                 () -> cfg.observedDisableEnabled, v -> cfg.observedDisableEnabled = v));
-        list.add(new NumOption("他人禁用时长", " tick", DISABLE_TICKS_PRESETS,
+        list.add(new NumOption("他人禁用时长", " tick", ticks(20, defaults.observedDisableTicks),
                 () -> cfg.observedDisableTicks, v -> cfg.observedDisableTicks = (int) Math.round(v)));
-        list.add(new NumOption("破盾归属判定半径", " 格", RADIUS_PRESETS,
+        list.add(new NumOption("破盾归属判定半径", " 格", decimal(0.25, defaults.observedDisableRadius),
                 () -> cfg.observedDisableRadius, v -> cfg.observedDisableRadius = v));
 
-        list.add(new ColorOption("颜色：未举起",
+        list.add(new ColorOption("颜色：未举起", defaults.colorIdle,
                 () -> cfg.colorIdle, v -> cfg.colorIdle = v));
-        list.add(new ColorOption("颜色：举起前摇",
+        list.add(new ColorOption("颜色：举起前摇", defaults.colorRaising,
                 () -> cfg.colorRaising, v -> cfg.colorRaising = v));
-        list.add(new ColorOption("颜色：举盾已生效",
+        list.add(new ColorOption("颜色：举盾已生效", defaults.colorRaised,
                 () -> cfg.colorRaised, v -> cfg.colorRaised = v));
-        list.add(new ColorOption("颜色：被禁用",
+        list.add(new ColorOption("颜色：被禁用", defaults.colorDisabled,
                 () -> cfg.colorDisabled, v -> cfg.colorDisabled = v));
 
         list.add(new BoolOption("恢复提示音",
                 () -> cfg.recoverSoundEnabled, v -> cfg.recoverSoundEnabled = v));
         list.add(new StrOption("提示音 第一声", SOUND_PRESETS,
                 () -> cfg.recoverSoundId, v -> cfg.recoverSoundId = v));
-        list.add(new NumOption("提示音1 音量", "", VOLUME_PRESETS,
+        list.add(new NumOption("提示音1 音量", "", sound(0, 1, defaults.recoverSoundVolume),
                 () -> cfg.recoverSoundVolume, v -> cfg.recoverSoundVolume = v.floatValue()));
-        list.add(new NumOption("提示音1 音高", "", PITCH_PRESETS,
+        list.add(new NumOption("提示音1 音高", "", sound(0.5, 2, defaults.recoverSoundPitch),
                 () -> cfg.recoverSoundPitch, v -> cfg.recoverSoundPitch = v.floatValue()));
         list.add(new StrOption("提示音 第二声", SOUND_PRESETS,
                 () -> cfg.recoverSoundId2, v -> cfg.recoverSoundId2 = v));
-        list.add(new NumOption("提示音2 音量", "", VOLUME_PRESETS,
+        list.add(new NumOption("提示音2 音量", "", sound(0, 1, defaults.recoverSoundVolume2),
                 () -> cfg.recoverSoundVolume2, v -> cfg.recoverSoundVolume2 = v.floatValue()));
-        list.add(new NumOption("提示音2 音高", "", PITCH_PRESETS,
+        list.add(new NumOption("提示音2 音高", "", sound(0.5, 2, defaults.recoverSoundPitch2),
                 () -> cfg.recoverSoundPitch2, v -> cfg.recoverSoundPitch2 = v.floatValue()));
-        list.add(new NumOption("第二声延迟", " tick", DELAY_PRESETS,
+        list.add(new NumOption("第二声延迟", " tick", ticks(1, defaults.recoverSoundDelayTicks),
                 () -> cfg.recoverSoundDelayTicks, v -> cfg.recoverSoundDelayTicks = (int) Math.round(v)));
 
         return list;
@@ -203,12 +192,22 @@ public class ShieldTweakConfigScreen extends Screen {
 
     // ---- 选项模型 ----
 
+    private static ConfigEditorValues.NumberRule decimal(double step, double defaultValue) {
+        return new ConfigEditorValues.NumberRule(ConfigEditorValues.NumberKind.DECIMAL, 0, Double.MAX_VALUE, step, defaultValue);
+    }
+
+    private static ConfigEditorValues.NumberRule ticks(double step, double defaultValue) {
+        return new ConfigEditorValues.NumberRule(ConfigEditorValues.NumberKind.INTEGER, 0, Integer.MAX_VALUE, step, defaultValue);
+    }
+
+    private static ConfigEditorValues.NumberRule sound(double min, double max, double defaultValue) {
+        return new ConfigEditorValues.NumberRule(ConfigEditorValues.NumberKind.FLOAT, min, max, 0.05, defaultValue);
+    }
+
     private interface Option {
         String name();
 
         String displayValue();
-
-        void cycle();
     }
 
     private record BoolOption(String name, BooleanSupplier get, Consumer<Boolean> set) implements Option {
@@ -216,36 +215,20 @@ public class ShieldTweakConfigScreen extends Screen {
         public String displayValue() {
             return get.getAsBoolean() ? "开" : "关";
         }
-
-        @Override
-        public void cycle() {
-            set.accept(!get.getAsBoolean());
-        }
     }
 
-    private record NumOption(String name, String suffix, double[] presets,
+    private record NumOption(String name, String suffix, ConfigEditorValues.NumberRule rule,
                              DoubleSupplier get, Consumer<Double> set) implements Option {
         @Override
         public String displayValue() {
-            return format(get.getAsDouble()) + suffix;
-        }
-
-        @Override
-        public void cycle() {
-            set.accept(presets[nextIndex(presets, get.getAsDouble())]);
+            return rule.format(get.getAsDouble()) + suffix;
         }
     }
 
-    private record ColorOption(String name, IntSupplier get, IntConsumer set) implements Option {
+    private record ColorOption(String name, int defaultValue, IntSupplier get, IntConsumer set) implements Option {
         @Override
         public String displayValue() {
-            int rgb = get.getAsInt();
-            return "#" + String.format("%06X", rgb & 0xFFFFFF) + "　" + colorName(rgb);
-        }
-
-        @Override
-        public void cycle() {
-            set.accept((int) COLOR_PRESETS[nextIndex(COLOR_PRESETS, get.getAsInt())]);
+            return ConfigEditorValues.hex(get.getAsInt());
         }
     }
 
@@ -258,7 +241,6 @@ public class ShieldTweakConfigScreen extends Screen {
             return colon >= 0 ? value.substring(colon + 1) : value;
         }
 
-        @Override
         public void cycle() {
             String value = get.get();
             for (int i = 0; i < presets.length; i++) {
@@ -272,37 +254,4 @@ public class ShieldTweakConfigScreen extends Screen {
         }
     }
 
-    // ---- 工具方法 ----
-
-    /** 命中预设则前进一档；未命中则先吸附到最接近的档位，避免一次点击跳过用户当前的自定义值 */
-    private static int nextIndex(final double[] presets, final double current) {
-        int nearest = 0;
-        double bestDiff = Double.MAX_VALUE;
-        for (int i = 0; i < presets.length; i++) {
-            double diff = Math.abs(presets[i] - current);
-            if (diff < bestDiff) {
-                bestDiff = diff;
-                nearest = i;
-            }
-        }
-        return bestDiff > 1e-6 ? nearest : (nearest + 1) % presets.length;
-    }
-
-    private static String colorName(final int rgb) {
-        for (int i = 0; i < COLOR_PRESETS.length; i++) {
-            if ((int) COLOR_PRESETS[i] == rgb) {
-                return COLOR_NAMES[i];
-            }
-        }
-        return "自定义";
-    }
-
-    private static String format(final double value) {
-        if (value == Math.rint(value) && Math.abs(value) < 1e9) {
-            return Integer.toString((int) value);
-        }
-        return String.format(java.util.Locale.ROOT, "%.2f", value)
-                .replaceAll("0+$", "")
-                .replaceAll("\\.$", "");
-    }
 }
