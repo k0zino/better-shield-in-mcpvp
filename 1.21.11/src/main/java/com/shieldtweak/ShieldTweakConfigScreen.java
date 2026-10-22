@@ -118,7 +118,7 @@ public class ShieldTweakConfigScreen extends Screen {
         }
 
         final int footY = this.height - ROW_HEIGHT - BOTTOM_MARGIN;
-        final int third = (BUTTON_WIDTH - 8) / 2;
+        final int third = (BUTTON_WIDTH - 2 * 8) / 3;
         addDrawableChild(ButtonWidget.builder(Text.literal("◀ 上一页"), b -> {
             page = (page - 1 + pageCount) % pageCount;
             needsRebuild = true;

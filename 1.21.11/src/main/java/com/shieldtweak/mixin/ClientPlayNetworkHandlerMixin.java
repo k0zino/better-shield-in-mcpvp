@@ -19,9 +19,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(ClientPlayNetworkHandler.class)
 public abstract class ClientPlayNetworkHandlerMixin {
-    @Inject(method = "onPlaySound", at = @At("HEAD"))
+    // RETURN 位于原版线程检查之后，避免网络线程遍历世界和修改观察记录。
+    @Inject(method = "onPlaySound", at = @At("RETURN"))
     private void shieldtweak$onShieldBreakSound(final PlaySoundS2CPacket packet, final CallbackInfo ci) {
-        if (packet.getSound() != SoundEvents.ITEM_SHIELD_BREAK) {
+        if (!packet.getSound().value().equals(SoundEvents.ITEM_SHIELD_BREAK.value())) {
             return;
         }
         ShieldTweakConfig cfg = ShieldTweakConfig.get();

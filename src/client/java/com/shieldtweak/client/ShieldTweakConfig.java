@@ -17,7 +17,9 @@ import java.nio.file.Path;
  */
 public final class ShieldTweakConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("shieldtweak.json");
+    private static Path configFile() {
+        return FabricLoader.getInstance().getConfigDir().resolve("shieldtweak.json");
+    }
 
     // ---- 低盾 ----
     /** 是否下调第一人称盾牌模型 */
@@ -77,35 +79,42 @@ public final class ShieldTweakConfig {
 
     public static void load() {
         ShieldTweakConfig cfg = new ShieldTweakConfig();
-        if (Files.isRegularFile(FILE)) {
+        Path file = configFile();
+        if (Files.isRegularFile(file)) {
             try {
-                JsonObject json = JsonParser.parseString(Files.readString(FILE)).getAsJsonObject();
-                cfg.lowShieldEnabled = getBool(json, "lowShieldEnabled", cfg.lowShieldEnabled);
-                cfg.lowShieldOffset = getDouble(json, "lowShieldOffset", cfg.lowShieldOffset);
-                cfg.tintEnabled = getBool(json, "tintEnabled", cfg.tintEnabled);
-                cfg.colorIdle = getColor(json, "colorIdle", cfg.colorIdle);
-                cfg.colorRaising = getColor(json, "colorRaising", cfg.colorRaising);
-                cfg.colorRaised = getColor(json, "colorRaised", cfg.colorRaised);
-                cfg.colorDisabled = getColor(json, "colorDisabled", cfg.colorDisabled);
-                cfg.tintSelf = getBool(json, "tintSelf", cfg.tintSelf);
-                cfg.tintOthers = getBool(json, "tintOthers", cfg.tintOthers);
-                cfg.recoverSoundEnabled = getBool(json, "recoverSoundEnabled", cfg.recoverSoundEnabled);
-                cfg.recoverSoundId = getString(json, "recoverSoundId", cfg.recoverSoundId);
-                cfg.recoverSoundVolume = (float) getDouble(json, "recoverSoundVolume", cfg.recoverSoundVolume);
-                cfg.recoverSoundPitch = (float) getDouble(json, "recoverSoundPitch", cfg.recoverSoundPitch);
-                cfg.recoverSoundId2 = getString(json, "recoverSoundId2", cfg.recoverSoundId2);
-                cfg.recoverSoundVolume2 = (float) getDouble(json, "recoverSoundVolume2", cfg.recoverSoundVolume2);
-                cfg.recoverSoundPitch2 = (float) getDouble(json, "recoverSoundPitch2", cfg.recoverSoundPitch2);
-                cfg.recoverSoundDelayTicks = (int) getDouble(json, "recoverSoundDelayTicks", cfg.recoverSoundDelayTicks);
-                cfg.observedDisableEnabled = getBool(json, "observedDisableEnabled", cfg.observedDisableEnabled);
-                cfg.observedDisableTicks = (int) getDouble(json, "observedDisableTicks", cfg.observedDisableTicks);
-                cfg.observedDisableRadius = getDouble(json, "observedDisableRadius", cfg.observedDisableRadius);
+                cfg = fromJson(JsonParser.parseString(Files.readString(file)).getAsJsonObject());
             } catch (Exception e) {
                 ShieldTweakClient.LOGGER.warn("读取配置失败，使用默认值", e);
             }
         }
         INSTANCE = cfg;
         cfg.save();
+    }
+
+    /** 单项无效时只回退该项，避免一个 null 或类型错误丢弃后续设置。 */
+    static ShieldTweakConfig fromJson(final JsonObject json) {
+        ShieldTweakConfig cfg = new ShieldTweakConfig();
+        cfg.lowShieldEnabled = getBool(json, "lowShieldEnabled", cfg.lowShieldEnabled);
+        cfg.lowShieldOffset = Math.max(0.0, getDouble(json, "lowShieldOffset", cfg.lowShieldOffset));
+        cfg.tintEnabled = getBool(json, "tintEnabled", cfg.tintEnabled);
+        cfg.colorIdle = getColor(json, "colorIdle", cfg.colorIdle);
+        cfg.colorRaising = getColor(json, "colorRaising", cfg.colorRaising);
+        cfg.colorRaised = getColor(json, "colorRaised", cfg.colorRaised);
+        cfg.colorDisabled = getColor(json, "colorDisabled", cfg.colorDisabled);
+        cfg.tintSelf = getBool(json, "tintSelf", cfg.tintSelf);
+        cfg.tintOthers = getBool(json, "tintOthers", cfg.tintOthers);
+        cfg.recoverSoundEnabled = getBool(json, "recoverSoundEnabled", cfg.recoverSoundEnabled);
+        cfg.recoverSoundId = getString(json, "recoverSoundId", cfg.recoverSoundId);
+        cfg.recoverSoundVolume = getFloat(json, "recoverSoundVolume", cfg.recoverSoundVolume, 0.0, 1.0);
+        cfg.recoverSoundPitch = getFloat(json, "recoverSoundPitch", cfg.recoverSoundPitch, 0.5, 2.0);
+        cfg.recoverSoundId2 = getString(json, "recoverSoundId2", cfg.recoverSoundId2);
+        cfg.recoverSoundVolume2 = getFloat(json, "recoverSoundVolume2", cfg.recoverSoundVolume2, 0.0, 1.0);
+        cfg.recoverSoundPitch2 = getFloat(json, "recoverSoundPitch2", cfg.recoverSoundPitch2, 0.5, 2.0);
+        cfg.recoverSoundDelayTicks = Math.max(0, (int) getDouble(json, "recoverSoundDelayTicks", cfg.recoverSoundDelayTicks));
+        cfg.observedDisableEnabled = getBool(json, "observedDisableEnabled", cfg.observedDisableEnabled);
+        cfg.observedDisableTicks = Math.max(0, (int) getDouble(json, "observedDisableTicks", cfg.observedDisableTicks));
+        cfg.observedDisableRadius = Math.max(0.0, getDouble(json, "observedDisableRadius", cfg.observedDisableRadius));
+        return cfg;
     }
 
     public void save() {
@@ -131,8 +140,9 @@ public final class ShieldTweakConfig {
         json.addProperty("observedDisableTicks", observedDisableTicks);
         json.addProperty("observedDisableRadius", observedDisableRadius);
         try {
-            Files.createDirectories(FILE.getParent());
-            Files.writeString(FILE, GSON.toJson(json));
+            Path file = configFile();
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, GSON.toJson(json));
         } catch (IOException e) {
             ShieldTweakClient.LOGGER.warn("写入配置失败", e);
         }
@@ -143,15 +153,31 @@ public final class ShieldTweakConfig {
     }
 
     private static boolean getBool(JsonObject json, String key, boolean def) {
-        return json.has(key) ? json.get(key).getAsBoolean() : def;
+        var value = json.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()
+                ? value.getAsBoolean() : def;
     }
 
     private static double getDouble(JsonObject json, String key, double def) {
-        return json.has(key) ? json.get(key).getAsDouble() : def;
+        try {
+            var value = json.get(key);
+            if (value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
+                double number = value.getAsDouble();
+                return Double.isFinite(number) ? number : def;
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        return def;
+    }
+
+    private static float getFloat(JsonObject json, String key, float def, double min, double max) {
+        return (float) Math.clamp(getDouble(json, key, def), min, max);
     }
 
     private static String getString(JsonObject json, String key, String def) {
-        return json.has(key) ? json.get(key).getAsString() : def;
+        var value = json.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
+                ? value.getAsString().trim() : def;
     }
 
     /** 支持 "#RRGGBB"、"0xRRGGBB" 字符串或十进制数字 */
@@ -164,6 +190,7 @@ public final class ShieldTweakConfig {
             }
             String s = el.getAsString().trim();
             if (s.startsWith("#")) s = s.substring(1);
+            else if (s.startsWith("0x") || s.startsWith("0X")) s = s.substring(2);
             return Integer.parseInt(s, 16) & 0xFFFFFF;
         } catch (Exception e) {
             return def;

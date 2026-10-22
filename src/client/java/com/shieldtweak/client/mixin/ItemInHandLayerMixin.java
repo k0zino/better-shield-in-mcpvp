@@ -30,6 +30,7 @@ public abstract class ItemInHandLayerMixin {
         final int lightCoords,
         final CallbackInfo ci
     ) {
+        ShieldTintContext.clear();
         if (itemStack.is(Items.SHIELD) && state instanceof AvatarRenderState avatar) {
             ShieldStates.applyTint(avatar, arm, itemStack);
         }

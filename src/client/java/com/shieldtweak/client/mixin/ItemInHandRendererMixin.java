@@ -7,6 +7,7 @@ import com.shieldtweak.client.ShieldTweakConfig;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -28,14 +29,18 @@ public abstract class ItemInHandRendererMixin {
         final int lightCoords,
         final CallbackInfo ci
     ) {
-        if (!stack.is(Items.SHIELD)) {
+        ShieldTintContext.clear();
+        if (!stack.is(Items.SHIELD) || (displayContext != ItemDisplayContext.FIRST_PERSON_LEFT_HAND
+                && displayContext != ItemDisplayContext.FIRST_PERSON_RIGHT_HAND)) {
             return;
         }
+        poseStack.pushPose();
         ShieldTweakConfig cfg = ShieldTweakConfig.get();
         if (cfg.lowShieldEnabled) {
             poseStack.translate(0.0, -cfg.lowShieldOffset, 0.0);
         }
-        ShieldStates.applyTint(entity, stack);
+        ShieldStates.applyTint(entity, stack, displayContext == ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
+                ? HumanoidArm.RIGHT : HumanoidArm.LEFT);
     }
 
     @Inject(method = "renderItem", at = @At("RETURN"))
@@ -48,6 +53,10 @@ public abstract class ItemInHandRendererMixin {
         final int lightCoords,
         final CallbackInfo ci
     ) {
+        if (stack.is(Items.SHIELD) && (displayContext == ItemDisplayContext.FIRST_PERSON_LEFT_HAND
+                || displayContext == ItemDisplayContext.FIRST_PERSON_RIGHT_HAND)) {
+            poseStack.popPose();
+        }
         ShieldTintContext.clear();
     }
 }

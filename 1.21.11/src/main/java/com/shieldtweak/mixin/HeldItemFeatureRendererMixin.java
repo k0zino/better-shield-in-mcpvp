@@ -30,6 +30,7 @@ public abstract class HeldItemFeatureRendererMixin {
         final int light,
         final CallbackInfo ci
     ) {
+        ShieldTintContext.clear();
         if (stack.isOf(Items.SHIELD) && entityState instanceof PlayerEntityRenderState playerState) {
             ShieldStates.applyTint(playerState, arm, stack);
         }

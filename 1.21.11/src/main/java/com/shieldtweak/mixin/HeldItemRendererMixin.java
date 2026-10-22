@@ -10,6 +10,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.item.ItemDisplayContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.util.Arm;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -28,14 +29,18 @@ public abstract class HeldItemRendererMixin {
         final int light,
         final CallbackInfo ci
     ) {
-        if (!stack.isOf(Items.SHIELD)) {
+        ShieldTintContext.clear();
+        if (!stack.isOf(Items.SHIELD) || (renderMode != ItemDisplayContext.FIRST_PERSON_LEFT_HAND
+                && renderMode != ItemDisplayContext.FIRST_PERSON_RIGHT_HAND)) {
             return;
         }
+        matrices.push();
         ShieldTweakConfig cfg = ShieldTweakConfig.get();
         if (cfg.lowShieldEnabled) {
             matrices.translate(0.0, -cfg.lowShieldOffset, 0.0);
         }
-        ShieldStates.applyTint(entity, stack);
+        ShieldStates.applyTint(entity, stack, renderMode == ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
+                ? Arm.RIGHT : Arm.LEFT);
     }
 
     @Inject(method = "renderItem", at = @At("RETURN"))
@@ -48,6 +53,10 @@ public abstract class HeldItemRendererMixin {
         final int light,
         final CallbackInfo ci
     ) {
+        if (stack.isOf(Items.SHIELD) && (renderMode == ItemDisplayContext.FIRST_PERSON_LEFT_HAND
+                || renderMode == ItemDisplayContext.FIRST_PERSON_RIGHT_HAND)) {
+            matrices.pop();
+        }
         ShieldTintContext.clear();
     }
 }

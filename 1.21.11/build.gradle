@@ -16,6 +16,13 @@ repositories {
 }
 
 dependencies {
+    testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
+    // 与 Loader 0.19.5 的 fabric-installer.json 保持一致，JUnit 不经过游戏启动器。
+    ['asm', 'asm-analysis', 'asm-commons', 'asm-tree', 'asm-util'].each {
+        testRuntimeOnly "org.ow2.asm:${it}:9.10.1"
+    }
+    testRuntimeOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
+    testRuntimeOnly "io.github.llamalad7:mixinextras-fabric:0.5.5"
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
@@ -29,6 +36,17 @@ dependencies {
 
 	// Mod Menu API：只提供“mod 列表里点设置”这个入口，不强制运行时安装
 	modImplementation "maven.modrinth:modmenu:${project.modmenu_version}"
+}
+
+base {
+    archivesName = "shieldtweak-mc${project.minecraft_version}"
+}
+
+
+test {
+    useJUnitPlatform()
+    systemProperty 'fabric.side', 'client'
+    systemProperty 'mixin.debug.countInjections', 'true'
 }
 
 processResources {

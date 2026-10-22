@@ -20,11 +20,10 @@ public class ShieldTweakClient implements ClientModInitializer {
     public static final String MOD_ID = "shieldtweak";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-    private static boolean shieldWasOnCooldown;
+    private static final ShieldRecovery RECOVERY = new ShieldRecovery();
+    private static Object lastWorld;
     /** 上次检测的玩家实例，用于识别重生/换世界导致的冷却表重置 */
     private static ClientPlayerEntity lastPlayer;
-    /** 恢复提示音第二声的倒计时（tick），<=0 表示无待播 */
-    private static int secondNoteIn = -1;
     /** 打开设置界面的按键，默认 K，可在原版“控制”里改 */
     private static KeyBinding configKey;
 
@@ -49,31 +48,32 @@ public class ShieldTweakClient implements ClientModInitializer {
             var player = client.player;
             if (player == null) {
                 // 不在世界中：复位所有状态，并清掉其他玩家的破盾观察记录
-                shieldWasOnCooldown = false;
+                RECOVERY.reset(false);
+                lastWorld = null;
                 lastPlayer = null;
-                secondNoteIn = -1;
                 ShieldStates.clearObserved();
                 return;
             }
-            if (player != lastPlayer) {
+            if (player != lastPlayer || client.world != lastWorld) {
                 // 重生或换世界会换成新的玩家实例，其冷却表是空的，
                 // 若沿用旧标志会把这次“清空”误判成禁用结束而白响一声
                 lastPlayer = player;
-                shieldWasOnCooldown = isShieldOnCooldown(player);
-                secondNoteIn = -1;
+                lastWorld = client.world;
+                RECOVERY.reset(isShieldOnCooldown(player));
+                ShieldStates.clearObserved();
+            }
+            if (client.isPaused()) {
+                return;
             }
             ShieldStates.pruneExpired();
-
-            if (secondNoteIn > 0 && --secondNoteIn == 0) {
-                ShieldTweakConfig cfg = ShieldTweakConfig.get();
+            ShieldTweakConfig cfg = ShieldTweakConfig.get();
+            ShieldRecovery.Note note = RECOVERY.tick(isShieldOnCooldown(player), cfg.recoverSoundEnabled,
+                    cfg.recoverSoundDelayTicks, !cfg.recoverSoundId2.isBlank());
+            if (note == ShieldRecovery.Note.FIRST) {
+                playNote(client, cfg.recoverSoundId, cfg.recoverSoundVolume, cfg.recoverSoundPitch);
+            } else if (note == ShieldRecovery.Note.SECOND) {
                 playNote(client, cfg.recoverSoundId2, cfg.recoverSoundVolume2, cfg.recoverSoundPitch2);
             }
-
-            boolean onCooldown = isShieldOnCooldown(player);
-            if (shieldWasOnCooldown && !onCooldown) {
-                playRecoverSound(client);
-            }
-            shieldWasOnCooldown = onCooldown;
         });
     }
 
@@ -81,17 +81,10 @@ public class ShieldTweakClient implements ClientModInitializer {
         return player.getItemCooldownManager().isCoolingDown(new ItemStack(Items.SHIELD));
     }
 
-    private static void playRecoverSound(final MinecraftClient client) {
-        ShieldTweakConfig cfg = ShieldTweakConfig.get();
-        if (!cfg.recoverSoundEnabled) {
+    private static void playNote(final MinecraftClient client, final String soundId, final float volume, final float pitch) {
+        if (soundId == null || soundId.isBlank()) {
             return;
         }
-        playNote(client, cfg.recoverSoundId, cfg.recoverSoundVolume, cfg.recoverSoundPitch);
-        // 第二声与第一声构成上行双音，和原版单次闷响的破盾声区分开
-        secondNoteIn = cfg.recoverSoundDelayTicks > 0 && !cfg.recoverSoundId2.isBlank() ? cfg.recoverSoundDelayTicks : -1;
-    }
-
-    private static void playNote(final MinecraftClient client, final String soundId, final float volume, final float pitch) {
         SoundEvent sound = resolveSound(soundId);
         if (sound != null) {
             client.getSoundManager().play(PositionedSoundInstance.ui(sound, pitch, volume));

@@ -3,6 +3,7 @@ package com.shieldtweak;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.client.render.entity.state.PlayerEntityRenderState;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.BlocksAttacksComponent;
@@ -11,11 +12,13 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.util.Arm;
+import net.minecraft.util.Hand;
 
 /** 计算盾牌状态并设置染色上下文 */
 public final class ShieldStates {
     /** 实体 id -> 观察到的破盾禁用结束时间 (world time)，用于其他玩家 */
     private static final Map<Integer, Long> OBSERVED_DISABLED_UNTIL = new HashMap<>();
+    private static ClientWorld observedWorld;
 
     /**
      * 举盾前摇的兜底值（tick）。
@@ -35,6 +38,11 @@ public final class ShieldStates {
 
     /** 在客户端听到某玩家位置播放破盾音效时调用 */
     public static void markObservedDisabled(final int entityId) {
+        pruneExpired();
+        var player = MinecraftClient.getInstance().player;
+        if (player != null && entityId == player.getId()) {
+            return;
+        }
         var world = MinecraftClient.getInstance().world;
         if (world != null) {
             OBSERVED_DISABLED_UNTIL.put(entityId, world.getTime() + ShieldTweakConfig.get().observedDisableTicks);
@@ -43,11 +51,16 @@ public final class ShieldStates {
 
     public static void clearObserved() {
         OBSERVED_DISABLED_UNTIL.clear();
+        observedWorld = null;
     }
 
     /** 清除已过期的观察记录，避免 map 随玩家数量只增不减 */
     public static void pruneExpired() {
         var world = MinecraftClient.getInstance().world;
+        if (world != observedWorld || !ShieldTweakConfig.get().observedDisableEnabled) {
+            OBSERVED_DISABLED_UNTIL.clear();
+            observedWorld = world;
+        }
         if (world == null) {
             OBSERVED_DISABLED_UNTIL.clear();
             return;
@@ -57,16 +70,16 @@ public final class ShieldStates {
     }
 
     /** 第一人称：直接从实体计算 */
-    public static void applyTint(final LivingEntity entity, final ItemStack stack) {
+    public static void applyTint(final LivingEntity entity, final ItemStack stack, final Arm arm) {
         ShieldTweakConfig cfg = ShieldTweakConfig.get();
         if (!cfg.tintEnabled || !cfg.tintSelf) {
             return;
         }
         if (isSelfDisabled(entity, stack)) {
             ShieldTintContext.set(cfg.colorDisabled);
-        } else if (isBlocking(entity)) {
+        } else if (isUsingShield(entity, arm) && entity.isBlocking()) {
             ShieldTintContext.set(cfg.colorRaised);
-        } else if (isRaising(entity)) {
+        } else if (isUsingShield(entity, arm)) {
             applyRaisingOrIdle(cfg);
         } else if (cfg.colorIdle != 0xFFFFFF) {
             ShieldTintContext.set(cfg.colorIdle);
@@ -86,11 +99,13 @@ public final class ShieldStates {
         }
         // getItemUseTime(arm) 已含手臂匹配判定，非使用手返回 0；它是带 tickProgress 插值的已使用 tick 数
         float itemUseTime = playerState.getItemUseTime(arm);
+        boolean usingThisArm = playerState.isUsingItem
+                && (playerState.activeHand == Hand.MAIN_HAND) == (arm == playerState.mainArm);
         if (isDisabled(playerState.id, self, stack)) {
             ShieldTintContext.set(cfg.colorDisabled);
-        } else if (itemUseTime >= getBlockDelayTicks(stack)) {
+        } else if (usingThisArm && itemUseTime >= getBlockDelayTicks(stack)) {
             ShieldTintContext.set(cfg.colorRaised);
-        } else if (itemUseTime > 0.0F) {
+        } else if (usingThisArm) {
             applyRaisingOrIdle(cfg);
         } else if (cfg.colorIdle != 0xFFFFFF) {
             ShieldTintContext.set(cfg.colorIdle);
@@ -106,18 +121,10 @@ public final class ShieldStates {
         }
     }
 
-    /**
-     * 举盾是否已真正生效。
-     * LivingEntity#isBlocking 内部已按 blocks_attacks 的 block_delay_ticks 判定，
-     * 前摇期间返回 false，因此不会提前变绿。
-     */
-    private static boolean isBlocking(final LivingEntity entity) {
-        return entity.isBlocking() && entity.getActiveItem().isOf(Items.SHIELD);
-    }
-
-    /** 正在举盾但前摇未结束 */
-    private static boolean isRaising(final LivingEntity entity) {
-        return entity.isUsingItem() && entity.getActiveItem().isOf(Items.SHIELD);
+    /** 只匹配当前渲染手；格挡是否已生效另由实体的 isBlocking() 判定。 */
+    private static boolean isUsingShield(final LivingEntity entity, final Arm arm) {
+        return entity.isUsingItem() && entity.getActiveItem().isOf(Items.SHIELD)
+                && (entity.getActiveHand() == Hand.MAIN_HAND) == (arm == entity.getMainArm());
     }
 
     private static boolean isSelfDisabled(final LivingEntity entity, final ItemStack stack) {
@@ -127,14 +134,15 @@ public final class ShieldStates {
 
     private static boolean isDisabled(final int entityId, final boolean self, final ItemStack stack) {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (self && client.player != null && client.player.getItemCooldownManager().isCoolingDown(stack)) {
-            return true;
+        if (self) {
+            return client.player != null && client.player.getItemCooldownManager().isCoolingDown(stack);
         }
         if (!ShieldTweakConfig.get().observedDisableEnabled) {
             // 推断已关闭：其他玩家不再染红（自己的红色走上面的冷却同步，不受影响）
             return false;
         }
         // 其他玩家：破盾时服务端会在其位置播放 item.shield.break，据此推断禁用窗口
+        pruneExpired();
         Long until = OBSERVED_DISABLED_UNTIL.get(entityId);
         return until != null && client.world != null && client.world.getTime() < until;
     }
